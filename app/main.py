@@ -115,10 +115,7 @@ def predict(item: MachineInput) -> PredictionResponse:
         probabilites=probabilites
     )
 
-    logger.info(f"Sortie : {PredictionResponse(
-            criticite=criticite,
-            probabilites=probabilites
-        )}")
+    logger.info(f"Sortie : {response}")
 
     duration_ms = (time.perf_counter() - start_time) * 1000
     logger.info(f"Durée d'éxécution : {duration_ms}ms")
