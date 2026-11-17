@@ -18,8 +18,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-
+import time
 import joblib
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from loguru import logger
 
@@ -29,6 +30,14 @@ MODEL_PATH = Path(__file__).resolve().parents[1] / "model" / "model.joblib"
 
 # Mémoire d'application — peuplée par le lifespan
 state: dict[str, Any] = {}
+
+# Config logs
+logger.add(
+    "logs/api.log",
+    rotation="40 MB",
+    retention="7 days",
+    compression="zip"
+)
 
 
 @asynccontextmanager
@@ -83,30 +92,35 @@ def health() -> HealthResponse:
 @app.post("/predict", response_model=PredictionResponse)
 def predict(item: MachineInput) -> PredictionResponse:
     """Prédit la criticité d'une machine à partir de ses caractéristiques.
-
-    🎯 **À COMPLÉTER PAR L'APPRENANT.**
-
-    Indices d'implémentation :
-
-    1. Construire un DataFrame pandas à 1 ligne à partir de `item.model_dump()`.
-       Le pipeline scikit-learn attend les colonnes dans le même ordre qu'à
-       l'entraînement (cf. `model/train_baseline.py`, `NUM_FEATURES` + `CAT_FEATURES`).
-    2. Récupérer le modèle via `state["model"]`.
-    3. Appeler `model.predict(df)[0]` pour obtenir la classe prédite (str).
-    4. Appeler `model.predict_proba(df)[0]` pour obtenir les probabilités.
-       Les classes correspondantes sont dans `model.classes_`.
-    5. Construire et retourner un `PredictionResponse`.
-
     Args:
         item: caractéristiques de la machine (cf. `schemas.MachineInput`).
 
     Returns:
         PredictionResponse avec la classe prédite et les probabilités.
     """
-    raise HTTPException(
-        status_code=501,
-        detail=(
-            "Endpoint /predict à implémenter — voir TODO dans app/main.py "
-            "et le mini-cours 01_FastAPI_essentiel.md."
-        ),
+    start_time = time.perf_counter()
+    
+    logger.info(f"Entrée : {item.model_dump()}")
+    df = pd.DataFrame([item.model_dump()])
+    model = state["model"]
+
+    criticite = model.predict(df)[0]
+    probas = model.predict_proba(df)[0]
+    probabilites = {
+        cls: float(proba) for cls, proba in zip(model.classes_, probas)
+    }
+
+    response = PredictionResponse(
+        criticite=criticite,
+        probabilites=probabilites
     )
+
+    logger.info(f"Sortie : {PredictionResponse(
+            criticite=criticite,
+            probabilites=probabilites
+        )}")
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(f"Durée d'éxécution : {duration_ms}ms")
+    
+    return response
