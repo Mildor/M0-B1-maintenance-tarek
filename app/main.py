@@ -24,7 +24,11 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from loguru import logger
 
-from app.schemas import HealthResponse, MachineInput, PredictionResponse
+from app.schemas import HealthResponse, MachineInput, PredictionResponse, ExplainationReponse
+
+import httpx
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
 
 MODEL_PATH = Path(__file__).resolve().parents[1] / "model" / "model.joblib"
 
@@ -143,5 +147,66 @@ def predict(item: MachineInput) -> PredictionResponse:
 
     duration_ms = (time.perf_counter() - start_time) * 1000
     logger.info(f"Durée d'éxécution : {duration_ms}ms")
+
+    return response
+
+
+@app.post("/explain", response_model=ExplainationReponse)
+def explain(item: MachineInput) -> ExplainationReponse:
+    """Prédit la criticité d'une machine à partir de ses caractéristiques et génére une explication via Ollama
+        Args:
+            item: caractéristiques de la machine (cf. `schemas.MachineInput`).
+
+        Returns:
+            PredictionResponse avec la classe prédite et les probabilités.
+        """
+    start_time = time.perf_counter()
+
+    logger.info(f"Entrée : {item.model_dump()}")
+    df = pd.DataFrame([item.model_dump()])
+    model = state["model"]
+
+    criticite = model.predict(df)[0]
+    probas = model.predict_proba(df)[0]
+    probabilites = {
+        cls: float(proba) for cls, proba in zip(model.classes_, probas)
+    }
+    
+    prompt = (
+        f"Tu es un exprt en maintenance industrielle prédictive."
+        f"Un modèle de machine learning a évalué une machine avec les caractéristique suivantes : "
+        f"{item.model_dump()}"
+        f"La criticité prédite est '{criticite}' (probabilités : {probabilites})"
+        f"Explique en français et en 2 à 3 phrases maximum pourquoi cette criticité est cohérente"
+        f"au vu des capteurs et de l'historique"
+    )
+    
+    try:
+        res = httpx.post(
+            OLLAMA_URL,
+            json={
+                "model": "llama3.2:3b",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=30.0
+        )
+        res.raise_for_status()
+        explanation_text = res.json()["response"].strip()
+    except (httpx.RequestError, httpx.HTTPStatusError, KeyError) as exc:
+        logger.error(f"Erreur lors de l'appel à Ollama : {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Le service d'explication (Ollama) est indisponible ou a expiré"
+        )
+
+    response = ExplainationReponse(
+        criticite=criticite,
+        probabilites=probabilites,
+        explanation=explanation_text,  # Vérifiez que le nom du champ correspond à app/schemas.py
+    )
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(f"Sortie (/explain) en {duration_ms:.1f}ms : {response}")
 
     return response

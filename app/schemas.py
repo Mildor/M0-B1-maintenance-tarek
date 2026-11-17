@@ -74,6 +74,15 @@ class PredictionResponse(BaseModel):
         description="Probabilité par classe (somme = 1.0).",
     )
 
+class ExplainationReponse(BaseModel):
+    """Sortie d'une prédiction : classe + probabilités suivie d'une explication"""
+    criticite: Criticite = Field(description="Classe prédite par le modèle.")
+    probabilites: dict[Criticite, float] = Field(
+        description="Probabilité par classe (somme = 1.0).",
+    )
+    explanation: str = Field(
+        description="Explication en 2-3 phrases générée par llama3.2:3b"
+    )
 
 class HealthResponse(BaseModel):
     """Sortie de la route /health."""
