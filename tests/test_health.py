@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import app, state
 
 
 def test_health_returns_200() -> None:
@@ -29,3 +29,11 @@ def test_health_response_schema() -> None:
         assert set(body.keys()) == {"status", "model_loaded"}
         assert isinstance(body["status"], str)
         assert isinstance(body["model_loaded"], bool)
+        
+def test_without_model() -> None:
+    """L'endpoint /health doit retourné 503 si le modèle n'est pas chargé"""
+    with TestClient(app) as client:
+        state.clear()
+        response = client.get("/health")
+        assert response.status_code == 503
+        assert 'Modèle non chargé' in response.json()["detail"]

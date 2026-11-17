@@ -80,12 +80,36 @@ def health() -> HealthResponse:
     """Retourne le statut du service et du modèle.
 
     Returns:
-        HealthResponse — `status="ok"` si le modèle est chargé, `degraded` sinon.
+        HealthResponse — `status="ok"` si le modèle est chargé, HTTPException 503 sinon.
     """
     is_loaded = "model" in state
+
+    if not is_loaded:
+        raise HTTPException(status_code=503, detail="Modèle non chargé")
+
+    df = pd.DataFrame([MachineInput(
+        type_machine="compresseur",
+        age_machine_jours=1500,
+        derniere_maintenance_jours=45,
+        temperature_moyenne=68.5,
+        vibration_moyenne=3.2,
+        pression_moyenne=7.8,
+        nb_incidents_3_mois=2
+    ).model_dump()])
+    model = state["model"]
+
+    try:
+        criticite = model.predict(df)[0]
+        model.predict_proba(df)[0]
+    except Exception:
+        raise HTTPException(status_code=503, detail="La prédiction a échoué")
+
+    if criticite != "basse":
+        raise HTTPException(status_code=503, detail="La prédiction est fausse")
+
     return HealthResponse(
-        status="ok" if is_loaded else "degraded",
-        model_loaded=is_loaded,
+        status="ok",
+        model_loaded=True,
     )
 
 
@@ -99,7 +123,7 @@ def predict(item: MachineInput) -> PredictionResponse:
         PredictionResponse avec la classe prédite et les probabilités.
     """
     start_time = time.perf_counter()
-    
+
     logger.info(f"Entrée : {item.model_dump()}")
     df = pd.DataFrame([item.model_dump()])
     model = state["model"]
@@ -119,5 +143,5 @@ def predict(item: MachineInput) -> PredictionResponse:
 
     duration_ms = (time.perf_counter() - start_time) * 1000
     logger.info(f"Durée d'éxécution : {duration_ms}ms")
-    
+
     return response
