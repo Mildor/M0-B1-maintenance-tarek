@@ -1,151 +1,138 @@
-# M0-B1 — Squelette repo (maintenance prédictive · API REST)
+# FastIA — API de maintenance prédictive (criticité machine)
 
-> **Repo template GitHub.** Clique sur **« Use this template »** en haut à
-> droite de cette page → **Create a new repository** → nomme-le
-> `M0-B1-maintenance-<prenom>` sur **ton** compte GitHub personnel
-> (`<prenom>` : ton prénom en minuscules, sans accent). C'est ce nouveau repo que tu cloneras pour travailler.
-
-Brief **M0-B1 « Intégrer un service IA de maintenance prédictive via API REST »**
-— **individuel**, 5 h.
-L'énoncé complet est publié sur **Simplonline** : c'est lui qui fait foi pour
-les livrables et les critères. Ce README est ton tableau de bord au quotidien.
+Service REST FastAPI exposant un modèle scikit-learn pré-entraîné pour classifier la criticité d'incidents machine en 3 niveaux (`basse`, `moyenne`, `haute`) à partir de 7 caractéristiques observables.
 
 ---
 
-## 🚀 Démarrage (4 étapes)
+## Architecture
 
-```bash
-# 0. Clone ton repo perso fraîchement créé
-git clone git@github.com:<ton-user>/M0-B1-maintenance-<prenom>.git
-# (sans clé SSH : git clone https://github.com/<ton-user>/M0-B1-maintenance-<prenom>.git)
-cd M0-B1-maintenance-<prenom>
+### Vue d'ensemble
 
-# 1. Environnement virtuel + dépendances
-python -m venv .venv && source .venv/bin/activate     # Linux/macOS
-# .venv\Scripts\activate                              # Windows
-pip install -r requirements.txt
+- **API (`app/main.py`)** : application FastAPI (`v0.1.0`) utilisant un gestionnaire `lifespan` pour charger le modèle `model/model.joblib` une seule fois au démarrage en mémoire (`state["model"]`), puis le libérer à l'arrêt.
+- **Validation (`app/schemas.py`)** : schémas Pydantic v2 (`MachineInput`, `PredictionResponse`, `HealthResponse`) garantissant les types, les valeurs autorisées (`type_machine` parmi `pompe`, `compresseur`, `convoyeur`, `presse`, `four`) et les bornes métier.
+- **Modèle (`model/model.joblib`)** : pipeline scikit-learn (`ColumnTransformer` avec `StandardScaler` + `OneHotEncoder`, suivi d'un `RandomForestClassifier`), entraîné sur `data/maintenance_data.csv` via `model/train_baseline.py`.
+- **Journalisation** : assurée par **Loguru** avec écriture dans `logs/api.log` (rotation à `40 MB`, rétention `7 days`, compression `zip`), traçant les entrées, les sorties et la durée d'exécution de chaque prédiction.
 
-# 2. Lancer l'API (rechargement auto) — dans un premier terminal
-uvicorn app.main:app --reload
+### Structure du projet
 
-# 3. Lancer les tests — dans un second terminal (réactive d'abord l'environnement)
-source .venv/bin/activate
-pytest
-```
-
-À l'étape 2, ouvre <http://localhost:8000/docs> (Swagger auto). L'endpoint
-`/health` doit déjà répondre `{"status": "ok", "model_loaded": true}`.
-Si ces commandes marchent, ton poste est prêt.
-
----
-
-## 📁 Structure du repo
-
-```
-M0-B1-maintenance-<prenom>/
+```text
+M0-B1-maintenance-tarek/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py             ← FastAPI : /health (✅) + /predict (à compléter)
-│   └── schemas.py          ← Pydantic : MachineInput, PredictionResponse
+│   ├── main.py              # Application FastAPI, lifespan, routes /health et /predict, logs Loguru
+│   └── schemas.py           # Schémas Pydantic (MachineInput, PredictionResponse, HealthResponse)
 ├── data/
-│   ├── generate_dataset.py ← régénération du dataset (déjà exécuté)
-│   └── maintenance_data.csv ← dataset synthétique 6 500 lignes
+│   ├── generate_dataset.py  # Script de génération du dataset synthétique
+│   └── maintenance_data.csv # Dataset d'entraînement
 ├── model/
-│   ├── train_baseline.py   ← entraînement (déjà exécuté)
-│   └── model.joblib        ← modèle pré-entraîné ~5,7 Mo (chargé au démarrage)
+│   ├── train_baseline.py    # Script d'entraînement du pipeline scikit-learn
+│   └── model.joblib         # Modèle sérialisé chargé au démarrage
 ├── tests/
 │   ├── __init__.py
-│   └── test_health.py      ← test pytest fonctionnel au clone (✅)
-├── ressources/             ← 📚 mini-cours d'appui (lecture juste-à-temps)
-│   ├── 01_FastAPI_essentiel.md
-│   ├── 02_Docker_essentiel.md
-│   ├── 03_Loguru_essentiel.md
-│   ├── 04_Pytest_API_essentiel.md
-│   ├── liens_officiels.md
-│   └── README.md           ← ordre de mobilisation + objectifs
-├── Dockerfile              ← squelette commenté à compléter
-├── requirements.txt        ← dépendances figées
-├── .gitignore
-└── README.md (ce fichier — à compléter avec ta doc de service)
+│   ├── test_health.py       # Tests de l'endpoint GET /health
+│   └── test_predict.py      # Tests de l'endpoint POST /predict (valide, 422, 5 types de machine)
+├── logs/
+│   └── api.log              # Fichier de logs généré par Loguru
+├── Dockerfile               # Image Docker Python 3.11-slim + uv + HEALTHCHECK
+└── requirements.txt         # Dépendances Python figées
 ```
 
----
+### Endpoints
 
-## ✏️ Ce que tu dois compléter
-
-| Fichier | Tâche |
-|---|---|
-| `app/main.py` | Implémenter l'endpoint **POST `/predict`** (TODO marqué dans le code) |
-| `app/main.py` | Ajouter du **logging Loguru** sur chaque requête (entrée, sortie, durée) |
-| `tests/` | Ajouter **≥ 3 tests** pour `/predict` (cas valide, erreur 422, test paramétré sur les 5 types de machine) |
-| `Dockerfile` | Compléter le squelette commenté (image qui build) |
-| `README.md` | Documenter le lancement du service (un dev externe en 5 min) |
+| Méthode | Route      | Description                                          | Réponse                                       |
+| ------- | ---------- | ---------------------------------------------------- | --------------------------------------------- |
+| `GET`   | `/health`  | Vérifie l'état du service et le chargement du modèle | `{"status": "ok", "model_loaded": true}`      |
+| `POST`  | `/predict` | Prédit la criticité et les probabilités par classe   | `{"criticite": "...", "probabilites": {...}}` |
+| `GET`   | `/docs`    | Documentation interactive Swagger UI                 | Interface OpenAPI                             |
 
 ---
 
-## 🧭 Démarche attendue (ordre suggéré)
+## Comment lancer le service
 
-| # | Étape | Mini-cours | Durée |
-|---|---|---|---|
-| 1 | Prise en main du squelette (clone + install + run) | — | 30 min |
-| 2 | Analyse de l'existant (`main.py`, `schemas.py`, `train_baseline.py`) | — | 30 min |
-| 3 | Implémenter `/predict` | [`01_FastAPI_essentiel.md`](./ressources/01_FastAPI_essentiel.md) | 1 h 30 |
-| 4 | Logging Loguru | [`03_Loguru_essentiel.md`](./ressources/03_Loguru_essentiel.md) | 30 min |
-| 5 | Tests pytest `/predict` | [`04_Pytest_API_essentiel.md`](./ressources/04_Pytest_API_essentiel.md) | 45 min |
-| 6 | Conteneurisation Docker | [`02_Docker_essentiel.md`](./ressources/02_Docker_essentiel.md) | 45 min |
-| 7 | README (colle-y les 3 preuves : `pytest -v`, `curl /health`, `docker images`) + push final + lien du repo déposé sur Simplonline | — | 30 min |
+### 1. En local (Python)
 
-Cf. [`./ressources/README.md`](./ressources/README.md) pour le détail. Les
-mini-cours se lisent **au moment où tu en as besoin** (~15 min chacun).
-
----
-
-## 🎯 Ce qui compte vraiment
-
-1. **Une API qui tourne**, pas une API parfaite. Un `/predict` simple qui
-   fonctionne vaut mieux qu'une archi sur-engineered qui plante.
-2. **Des tests qui passent** : ≥ 3 tests pour `/predict` en PASSED.
-3. **Un README** qui permet à un collègue de lancer le service en 5 minutes.
-4. **Un Dockerfile qui build** et une image qui répond sur `/health`.
-
-→ Compétence visée : **C6 — imiter** (intégrer un modèle livré dans un service API).
-
----
-
-## 🔁 Régénérer dataset / modèle (optionnel)
-
-Le dataset et le modèle sont déjà fournis — **pas besoin** de les régénérer.
-Si tu veux le faire (déterministe, `random_state=42`) :
+Prérequis : Python 3.11+
 
 ```bash
-python data/generate_dataset.py     # régénère le CSV
-python model/train_baseline.py      # réentraîne le modèle (~30 s)
+# Créer et activer l'environnement virtuel
+python -m venv .venv
+source .venv/bin/activate        # Linux / macOS
+# .venv\Scripts\activate         # Windows
+
+# Installer les dépendances
+pip install -r requirements.txt
+
+# Lancer l'API
+uvicorn app.main:app --reload
 ```
 
----
+L'API est accessible sur `http://localhost:8000` et la documentation Swagger sur `http://localhost:8000/docs`.
 
-## ✅ Conventions de code
+### 2. Avec Docker
 
-- Python 3.11+
-- Type hints sur toutes les signatures publiques
-- Pas de `print` — utiliser **Loguru**
-- `pathlib.Path` pour les chemins (pas de `os.path`)
-- `random_state=42` partout où il y a de l'aléa
+Le `Dockerfile` utilise `python:3.11-slim`, installe les dépendances via `uv`, expose le port `8000` et intègre un `HEALTHCHECK` sur `/health`.
 
----
+```bash
+# Construire l'image
+docker build -t fastia-maintenance:dev .
 
-## 🆘 Bloqué·e ?
+# Lancer le conteneur
+docker run -d -p 8000:8000 --name fastia-maintenance:dev fastia-maintenance:dev
+```
 
-| Symptôme | Cause probable | Solution |
-|---|---|---|
-| `ModuleNotFoundError` au lancement | env virtuel pas activé / deps absentes | `source .venv/bin/activate` puis `pip install -r requirements.txt` |
-| `Modèle introuvable` au démarrage uvicorn | `model.joblib` absent ou mal placé | `python model/train_baseline.py` |
-| `pytest` échoue au clone | env virtuel actif ? deps installées ? | idem ligne 1 |
-| Port 8000 déjà utilisé | un autre service tourne dessus | `uvicorn app.main:app --reload --port 8001` |
+## Comment tester
 
-1. Relis l'**exercice guidé** du mini-cours concerné (chacun a sa solution).
-2. Ouvre **Swagger** (`/docs`) pour débugger une route sans curl.
-3. Lis les **logs Loguru** dans la console pour repérer les exceptions.
-4. **Demande de l'aide**, à l'oral ou par écrit dans le fil Discord du brief :
-   les deux se valent. N'attends pas 30 min sur le même problème. Par écrit,
-   colle la commande lancée et le message d'erreur complet.
+La suite de tests utilise **pytest** et le `TestClient` de FastAPI :
+
+```bash
+# Avec l'environnement virtuel activé
+pytest -v
+```
+
+## Preuves
+
+### Pytest
+
+```text
+(M0-B1-maintenance-tarek) tarek@DESKTOP-QO2LOTN:~/formation/M0-B1-maintenance-tarek$ pytest -v
+
+=== test session starts ===
+platform linux -- Python 3.12.3, pytest-8.3.4, pluggy-1.7.0 -- /home/tarek/formation/M0-B1-maintenance-tarek/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/tarek/formation/M0-B1-maintenance-tarek
+plugins: Faker-40.52.0, anyio-4.6.2.post1
+collected 9 items
+
+tests/test_health.py::test_health_returns_200 PASSED                                                                                                                                                                                                                                                                                  [ 11%]
+tests/test_health.py::test_health_response_schema PASSED                                                                                                                                                                                                                                                                              [ 22%]
+tests/test_predict.py::test_cas_valide PASSED                                                                                                                                                                                                                                                                                         [ 33%]
+tests/test_predict.py::test_machine_invalide PASSED                                                                                                                                                                                                                                                                                   [ 44%]
+tests/test_predict.py::test_cas_valide_all_machine[pompe] PASSED                                                                                                                                                                                                                                                                      [ 55%]
+tests/test_predict.py::test_cas_valide_all_machine[compresseur] PASSED                                                                                                                                                                                                                                                                [ 66%]
+tests/test_predict.py::test_cas_valide_all_machine[convoyeur] PASSED                                                                                                                                                                                                                                                                  [ 77%]
+tests/test_predict.py::test_cas_valide_all_machine[presse] PASSED                                                                                                                                                                                                                                                                     [ 88%]
+tests/test_predict.py::test_cas_valide_all_machine[four] PASSED                                                                                                                                                                                                                                                                       [100%]
+
+===9 passed in 2.88s ===
+```
+
+### Réponse curl /health
+
+```text
+(M0-B1-maintenance-tarek) tarek@DESKTOP-QO2LOTN:~/formation/M0-B1-maintenance-tarek$ sudo docker ps
+CONTAINER ID   IMAGE                    COMMAND                  CREATED          STATUS                    PORTS                                         NAMES
+5b94f7876159   fastia-maintenance:dev   "uvicorn app.main:ap…"   13 minutes ago   Up 13 minutes (healthy)   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp   distracted_dijkstra
+(M0-B1-maintenance-tarek) tarek@DESKTOP-QO2LOTN:~/formation/M0-B1-maintenance-tarek$ curl http://localhost:8000/health
+{"status":"ok","model_loaded":true}
+```
+
+### Docker images
+
+```text
+(M0-B1-maintenance-tarek) tarek@DESKTOP-QO2LOTN:~/formation/M0-B1-maintenance-tarek$ sudo docker images
+
+IMAGE                    ID             DISK USAGE   CONTENT SIZE   EXTRA
+fastia-maintenance:dev   e7d1d136d2ad        664MB          156MB    U
+hello-world:latest       1e4c05b897a7       25.9kB         9.49kB
+python:3.12-slim         5e2bdb1b0d54        180MB         45.5MB
+```
